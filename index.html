@@ -47,8 +47,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubunt
 /* DICE */
 .dice-area{display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:24px}
 .dice-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
-.die-wrapper{display:flex;flex-direction:column;align-items:center;gap:4px}
-.die{width:var(--die-size);height:var(--die-size);background:#fff;border:2.5px solid var(--border);border-radius:10px;cursor:pointer;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);padding:7px;box-sizing:border-box;user-select:none;transition:.15s;position:relative}
+.die-wrapper{display:flex;flex-direction:column;align-items:center;gap:4px;touch-action:none}
+.die-wrapper[data-physical="true"]{cursor:pointer}
+.die-wrapper[data-physical="true"] .die{cursor:pointer;transition:.15s}
+.die-wrapper[data-physical="true"] .die:hover{transform:scale(1.06);box-shadow:0 4px 14px rgba(0,0,0,.12)}
+.die{width:var(--die-size);height:var(--die-size);background:#fff;border:2.5px solid var(--border);border-radius:10px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);padding:7px;box-sizing:border-box;user-select:none;transition:.15s;position:relative}
 .die:hover{transform:scale(1.06);box-shadow:0 4px 14px rgba(0,0,0,.12)}
 .die.held{border-color:var(--held-border);background:var(--held-bg);box-shadow:0 0 0 2px rgba(231,76,60,.15)}
 .die .dc{display:flex;align-items:center;justify-content:center}
@@ -100,6 +103,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubunt
 .modal .modal-actions{display:flex;gap:10px;justify-content:center;margin-top:20px}
 .modal .modal-actions .btn{min-width:120px}
 
+/* NUMBER PICKER */
+.number-picker-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px}
+.number-picker-overlay.hidden{display:none}
+.number-picker{background:var(--surface);border-radius:var(--radius);box-shadow:0 8px 32px rgba(0,0,0,.2);padding:20px;text-align:center}
+.number-picker .np-label{font-size:.85rem;color:var(--text-light);margin-bottom:12px}
+.np-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.np-btn{width:60px;height:60px;border:2px solid var(--border);border-radius:8px;background:var(--surface);font-size:1.5rem;font-weight:700;cursor:pointer;transition:.12s;color:var(--primary)}
+.np-btn:hover,.np-btn:active{background:var(--accent);color:#fff;border-color:var(--accent);transform:scale(1.08)}
+
 /* END SCREEN */
 .end-screen{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:40px 32px;text-align:center}
 .end-screen h1{font-size:2rem;margin-bottom:24px;color:var(--primary)}
@@ -135,6 +147,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubunt
 </head>
 <body>
 <div id="app"></div>
+
+<div id="numberPicker" class="number-picker-overlay hidden" onclick="if(event.target===this)hideNumberPicker()">
+  <div class="number-picker">
+    <div class="np-label">Augenzahl wählen</div>
+    <div class="np-grid">
+      <button class="np-btn" onclick="setDieValue(1)">1</button>
+      <button class="np-btn" onclick="setDieValue(2)">2</button>
+      <button class="np-btn" onclick="setDieValue(3)">3</button>
+      <button class="np-btn" onclick="setDieValue(4)">4</button>
+      <button class="np-btn" onclick="setDieValue(5)">5</button>
+      <button class="np-btn" onclick="setDieValue(6)">6</button>
+    </div>
+  </div>
+</div>
 
 <div id="confirmModal" class="modal-overlay hidden">
   <div class="modal">
@@ -378,6 +404,41 @@ function resetGame(){
   render()
 }
 
+let _npIdx = -1
+
+function showNumberPicker(index){
+  _npIdx = index
+  document.getElementById('numberPicker').classList.remove('hidden')
+}
+
+function hideNumberPicker(){
+  document.getElementById('numberPicker').classList.add('hidden')
+  _npIdx = -1
+}
+
+function setDieValue(val){
+  if(_npIdx < 0) return
+  state.dice[_npIdx] = val
+  hideNumberPicker()
+  render()
+}
+
+function setupPhysicalDice(){
+  document.querySelectorAll('[data-physical="true"]').forEach(el => {
+    const i = parseInt(el.dataset.index)
+    el.addEventListener('wheel', e => {
+      e.preventDefault()
+      adjustDie(i, e.deltaY < 0 ? 1 : -1)
+    }, { passive: false })
+    let touchY = 0
+    el.addEventListener('touchstart', e => { touchY = e.touches[0].clientY }, { passive: true })
+    el.addEventListener('touchend', e => {
+      const diff = touchY - e.changedTouches[0].clientY
+      if (Math.abs(diff) > 10) adjustDie(i, diff > 0 ? 1 : -1)
+    }, { passive: true })
+  })
+}
+
 function showConfirmModal(catId,score){
   const cat=CATEGORIES.find(c=>c.id===catId)
   document.getElementById('modalCategory').textContent=cat?cat.name:catId
@@ -394,7 +455,10 @@ function hideConfirmModal(){
 function render(){
   const app=document.getElementById('app')
   if(state.screen==='start')app.innerHTML=renderStartScreen()
-  else if(state.screen==='game')app.innerHTML=renderGameScreen()
+  else if(state.screen==='game'){
+    app.innerHTML=renderGameScreen()
+    if(state.mode==='physical')setupPhysicalDice()
+  }
   else if(state.screen==='end')app.innerHTML=renderEndScreen()
 }
 
@@ -449,17 +513,25 @@ function renderGameScreen(){
       inner='<div class="die-empty">?</div>'
     }
     const heldClass=held?' held':''
-    const clickAction=isVirtual&&state.phase==='rolling'?`onclick="toggleHold(${i})"`:isVirtual?'':''
+    const isPhysical=!isVirtual
+    let wrapperAttrs=''
+    let dieClick=''
+    if(isPhysical){
+      wrapperAttrs=`data-physical="true" data-index="${i}" onclick="showNumberPicker(${i})"`
+      dieClick=''
+    }else if(isVirtual&&state.phase==='rolling'){
+      dieClick=`onclick="toggleHold(${i})"`
+    }
     diceHTML+=`
-      <div class="die-wrapper">
-        <div class="die${heldClass}" data-index="${i}" ${clickAction}>
+      <div class="die-wrapper" ${wrapperAttrs}>
+        <div class="die${heldClass}" ${dieClick}>
           ${inner}
         </div>
-        ${!isVirtual?`
+        ${isPhysical?`
           <div class="physical-controls">
-            <button onclick="adjustDie(${i},-1)">-</button>
+            <button onclick="event.stopPropagation();adjustDie(${i},-1)">-</button>
             <span class="pv">${val>0?val:'?'}</span>
-            <button onclick="adjustDie(${i},1)">+</button>
+            <button onclick="event.stopPropagation();adjustDie(${i},1)">+</button>
           </div>
         `:''}
         ${isVirtual&&held?'<div class="die-label">gehalten</div>':''}
